@@ -121,7 +121,7 @@ $$f(x) = \ln(x) \cdot \sqrt{x}$$
    ```
 2. **Step 2 — Process Replication (`fork()`):** Using a `for` loop, `fork()` spawns `num_processes` child worker nodes.
 3. **Step 3 — Sub-Interval Computation (`integrate()`):** Each child process calculates its specific sub-range $[a_i, b_i]$ over $N_{\text{sub}}$ steps:
-   $$a_i = a + i \cdot \Delta x, \quad b_i = a_i + \Delta x, \quad \text{where } \Delta x = \frac{b - a}{\text{num\_processes}}$$
+   $$a_i = a + i \cdot \Delta x, \quad b_i = a_i + \Delta x, \quad \text{where } \Delta x = \frac{b - a}{\text{num-processes}}$$
 4. **Step 4 — Result Transmission (`msgsnd()`):** Worker nodes pack their partial quadrature result into `struct message` and send it to the queue via `msgsnd(msgid, &msg, sizeof(msg) - sizeof(long), 0)` before exiting (`exit(EXIT_SUCCESS)`).
 5. **Step 5 — Parent Result Retrieval (`msgrcv()`):** The parent process iterates `num_processes` times, invoking `msgrcv(msgid, &msg, sizeof(msg) - sizeof(long), 0, 0)` to receive incoming calculation payloads.
 6. **Step 6 — Partial Result Accumulation:** The parent accumulates all partial integrals into `total += msg.result`.
