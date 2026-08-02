@@ -178,7 +178,7 @@ The theoretical framework in `docs/Project Operating Systems.pdf` evaluates proc
 
 * **Turnaround Time ($TAT$):** $TAT = T_{\text{completion}} - T_{\text{arrival}}$
 * **Waiting Time ($WT$):** $WT = TAT - T_{\text{burst}}$
-* **Response Time ($RT$):** $RT = T_{\text{first\_cpu\_execution}} - T_{\text{arrival}}$
+* **Response Time ($RT$):** $RT = T_{\text{first-cpu-execution}} - T_{\text{arrival}}$
 * **CPU Utilization:** $\eta = \frac{\sum T_{\text{burst}}}{\text{Total Schedule Time}} \times 100\%$
 
 ---
