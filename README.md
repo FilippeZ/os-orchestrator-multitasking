@@ -104,61 +104,127 @@ The log parser is written in POSIX Bash, utilizing low-overhead stream processin
 
 ---
 
-### 2. POSIX Multiprocessing & Parallel Numerical Integration
+### 2. POSIX Multiprocessing & Parallel Numerical Integration (`src/parallel_integration.c`)
 
-To demonstrate concurrent execution under Linux/POSIX, the project formulates parallel numerical integration over an interval $[a, b]$ for the non-trivial function:
+To demonstrate concurrent execution under Linux/POSIX, the project formulates parallel numerical integration over an interval $[a, b] = [1.0, 4.0]$ for the non-trivial function:
 
 $$f(x) = \ln(x) \cdot \sqrt{x}$$
 
-#### Mathematical Sub-Interval Partitioning
+#### Step-by-Step Implementation Workflow (8-Step Pipeline)
 
-Given a target integration domain $[a, b]$ partitioned into $N$ child processes:
+1. **Step 1 — Queue Creation & Message Struct:** The master process allocates a System V Message Queue using `msgget(key, IPC_CREAT | 0666)` based on an IPC key generated via `ftok("/tmp", 'a')`. A custom data structure `struct message` is declared:
+   ```c
+   struct message {
+       long type;      /* Message tag identifier (1-based process index) */
+       double result;  /* Sub-integral calculation payload */
+   };
+   ```
+2. **Step 2 — Process Replication (`fork()`):** Using a `for` loop, `fork()` spawns `num_processes` child worker nodes.
+3. **Step 3 — Sub-Interval Computation (`integrate()`):** Each child process calculates its specific sub-range $[a_i, b_i]$ over $N_{\text{sub}}$ steps:
+   $$a_i = a + i \cdot \Delta x, \quad b_i = a_i + \Delta x, \quad \text{where } \Delta x = \frac{b - a}{\text{num\_processes}}$$
+4. **Step 4 — Result Transmission (`msgsnd()`):** Worker nodes pack their partial quadrature result into `struct message` and send it to the queue via `msgsnd(msgid, &msg, sizeof(msg) - sizeof(long), 0)` before exiting (`exit(EXIT_SUCCESS)`).
+5. **Step 5 — Parent Result Retrieval (`msgrcv()`):** The parent process iterates `num_processes` times, invoking `msgrcv(msgid, &msg, sizeof(msg) - sizeof(long), 0, 0)` to receive incoming calculation payloads.
+6. **Step 6 — Partial Result Accumulation:** The parent accumulates all partial integrals into `total += msg.result`.
+7. **Step 7 — Wall-Clock Execution Measurement (`get_wtime()`):** Execution wall-clock time is calculated with microsecond accuracy via `gettimeofday(&t, NULL)`, and parent reaps all child worker exit statuses using `wait(NULL)`.
+8. **Step 8 — IPC Queue Deallocation (`msgctl()`):** The parent calls `msgctl(msgid, IPC_RMID, NULL)` to remove the message queue from kernel memory.
 
-$$\Delta x = \frac{b - a}{N}$$
+#### Complete C Source Code Reference (`src/parallel_integration.c`)
 
-Each child process $k \in \{0, 1, \dots, N-1\}$ is assigned a isolated sub-domain $[a_k, b_k]$ where:
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <sys/wait.h>
+#include <math.h>
+#include <sys/time.h>
 
-$$a_k = a + k \cdot \Delta x, \quad b_k = a + (k+1) \cdot \Delta x$$
+struct message {
+    long type;
+    double result;
+};
 
-The child evaluates the numerical quadrature using the Trapezoidal Rule over $M$ sub-divisions:
+double f(double x) {
+    return log(x) * sqrt(x);
+}
 
-$$I_k \approx \frac{h}{2} \left[ f(a_k) + 2 \sum_{j=1}^{M-1} f(a_k + j \cdot h) + f(b_k) \right], \quad h = \frac{b_k - a_k}{M}$$
+double integrate(double a, double b, unsigned long n) {
+    double dx = (b - a) / n;
+    double S = 0.0;
+    for (unsigned long i = 0; i < n; i++) {
+        double xi = a + (i + 0.5) * dx;
+        S += f(xi);
+    }
+    S *= dx;
+    return S;
+}
 
-The overall integral is reconstructed by the parent process:
+double get_wtime(void) {
+    struct timeval t;
+    gettimeofday(&t, NULL);
+    return (double)t.tv_sec + (double)t.tv_usec * 1.0e-6;
+}
 
-$$I_{total} = \sum_{k=0}^{N-1} I_k$$
+int main(int argc, char *argv[]) {
+    int num_processes = argc > 1 ? atoi(argv[1]) : 1;
 
-#### Process Lifecycle & Memory Isolation
+    key_t key = ftok("/tmp", 'a');
+    int msgid = msgget(key, IPC_CREAT | 0666);
+    if (msgid < 0) {
+        perror("msgget");
+        exit(EXIT_FAILURE);
+    }
 
-```text
-[ Parent Process (PID: 1000) ]
-        │
-        ├──► fork() ──► [ Child Process 1 (PID: 1001) ] ──► Calculates I_1 ──► msgsnd() ──► exit(0)
-        ├──► fork() ──► [ Child Process 2 (PID: 1002) ] ──► Calculates I_2 ──► msgsnd() ──► exit(0)
-        │
-        └──► msgrcv() [Loop N times] ──► wait(NULL) [Reap Zombies] ──► Output Total I
+    double start_a = 1.0, end_b = 4.0;
+    unsigned long total_n = 100000000UL;
+    double step_size = (end_b - start_a) / num_processes;
+    unsigned long steps_per_process = total_n / num_processes;
+
+    for (int i = 0; i < num_processes; i++) {
+        if (fork() == 0) {
+            double child_a = start_a + i * step_size;
+            double child_b = child_a + step_size;
+            double result = integrate(child_a, child_b, steps_per_process);
+            struct message msg = { i + 1, result };
+            msgsnd(msgid, &msg, sizeof(struct message) - sizeof(long), 0);
+            exit(EXIT_SUCCESS);
+        }
+    }
+
+    double total = 0.0;
+    double t0 = get_wtime();
+    for (int i = 0; i < num_processes; i++) {
+        struct message msg;
+        msgrcv(msgid, &msg, sizeof(struct message) - sizeof(long), 0, 0);
+        total += msg.result;
+    }
+    double t1 = get_wtime();
+    for (int i = 0; i < num_processes; i++) wait(NULL);
+
+    printf("Processes: %d | Result: %.10f | Time: %.6f sec\n", num_processes, total, t1 - t0);
+    msgctl(msgid, IPC_RMID, NULL);
+    return 0;
+}
 ```
 
 ---
 
-### 3. Inter-Process Communication (IPC) via System V Message Queues
+### 3. Inter-Process Communication (IPC) & C Header Reference
 
-Child worker processes cannot write directly to parent process memory due to virtual address space isolation. The framework uses POSIX System V Message Queues (`sys/msg.h`) for structured, thread-safe data transfer.
+#### C Header Files & System API Mapping
 
-#### IPC Primitive Protocol
-
-1. **Key Generation (`ftok`):** Generates a unique IPC key based on file path and project ID.
-2. **Queue Allocation (`msgget`):** Allocates the queue with `IPC_CREAT | 0666` permissions.
-3. **Data Packaging (`msgsnd`):** Child packages computed floating-point values into standard message structures:
-   ```c
-   struct msg_buffer {
-       long msg_type;       /* Tag identifying message category */
-       double sub_integral; /* Partial numerical calculation result */
-       pid_t child_pid;     /* Worker process identifier */
-   } message;
-   ```
-4. **Data Aggregation (`msgrcv`):** Parent reads messages sequentially without blocking or race conditions.
-5. **Queue Destruction (`msgctl`):** Deallocates the kernel message queue object (`IPC_RMID`) to eliminate IPC resource leaks.
+| Header File | Target System Functionality & Macros |
+| :--- | :--- |
+| `<stdio.h>` | Standard I/O operations (`printf`, `perror`, `fprintf`). |
+| `<stdlib.h>` | Utility functions (`malloc`, `free`, `exit`, `atoi`, `EXIT_SUCCESS`, `EXIT_FAILURE`). |
+| `<unistd.h>` | Core POSIX system calls (`fork`, `exec`, `sleep`, `getpid`). |
+| `<sys/types.h>`| Primitive OS data types (`pid_t`, `key_t`, `size_t`). |
+| `<sys/ipc.h>` | Inter-Process Communication constants & structures (`ftok`, `key_t`, `IPC_CREAT`). |
+| `<sys/msg.h>` | System V Message Queue functions (`msgget`, `msgsnd`, `msgrcv`, `msgctl`, `IPC_RMID`). |
+| `<math.h>` | Mathematical functions (`log`, `sqrt`, `pow`, `M_PI`). Requires `-lm` link flag. |
+| `<sys/time.h>` | High-resolution wall-clock timer structure (`struct timeval`, `gettimeofday`). |
 
 ---
 
@@ -195,6 +261,7 @@ os-orchestrator-multitasking/
 │   ├── Operating_Systems_Assignment_1.docx       # Assignment 1 specification
 │   └── Project Operating Systems.pdf            # Comprehensive CPU scheduling & IPC report
 └── src/
+    ├── parallel_integration.c         # ⚡ Multiprocessing C Numerical Integration & Message Queue IPC
     └── scripts/
         └── logparser.sh               # 🔍 Automated Server Log Parser Engine
 ```
@@ -218,7 +285,23 @@ cd os-orchestrator-multitasking
 chmod +x src/scripts/logparser.sh
 ```
 
-### 2. Executing Log Parser Commands
+### 2. Compiling & Running Parallel C Integration
+
+```bash
+# Compile parallel C numerical integration module
+gcc -O3 src/parallel_integration.c -o parallel_integration -lm
+
+# Run with 1 worker process (Sequential execution)
+./parallel_integration 1
+
+# Run with 4 concurrent worker processes (Parallel execution)
+./parallel_integration 4
+
+# Run with 8 concurrent worker processes
+./parallel_integration 8
+```
+
+### 3. Executing Log Parser Commands
 
 ```bash
 # View Team Student AM IDs
