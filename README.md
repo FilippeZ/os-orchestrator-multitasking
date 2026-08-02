@@ -26,38 +26,38 @@ The system integrates an automated shell parsing engine with a multi-process C i
 
 ```mermaid
 graph TD
-    subgraph Layer 1: Shell Log Parsing Engine [logparser.sh]
-        LogFile[(access.log)] --> PromptCheck{File & Extension Valid?}
-        PromptCheck -->|No| ErrExit[Exit with Error]
-        PromptCheck -->|Yes| ArgDispatcher{Option Dispatcher}
+    subgraph L1["Layer 1: Shell Log Parsing Engine (logparser.sh)"]
+        LogFile[("access.log")] --> PromptCheck{"File & Extension Valid?"}
+        PromptCheck -->|"No"| ErrExit["Exit with Error"]
+        PromptCheck -->|"Yes"| ArgDispatcher{"Option Dispatcher"}
         
-        ArgDispatcher -->|--usrid| UserMine[awk Associative User Counter / sed Role Filter]
-        ArgDispatcher -->|-method| MethodFilter[sed GET / POST Extractor]
-        ArgDispatcher -->|--servprot| IPFilter[sed IPv4 '127.0.0.1' / IPv6 '::1']
-        ArgDispatcher -->|--browsers| BrowserMine[awk Regex Engine: Chrome/Mozilla/Safari/Edg]
-        ArgDispatcher -->|--datum| DateFilter[Month Converter & sed Date Extractor]
+        ArgDispatcher -->|"--usrid"| UserMine["awk Associative User Counter / sed Role Filter"]
+        ArgDispatcher -->|"-method"| MethodFilter["sed GET / POST Extractor"]
+        ArgDispatcher -->|"--servprot"| IPFilter["sed IPv4 '127.0.0.1' / IPv6 '::1'"]
+        ArgDispatcher -->|"--browsers"| BrowserMine["awk Regex Engine: Chrome/Mozilla/Safari/Edg"]
+        ArgDispatcher -->|"--datum"| DateFilter["Month Converter & sed Date Extractor"]
     end
 
-    subgraph Layer 2: Parallel C Multiprocessing & IPC
-        Parent[Parent Aggregator Process] -->|ftok & msgget| MQ[(OS Message Queue)]
-        Parent -->|fork x N| C1[Child Worker Process 1]
-        Parent -->|fork x N| C2[Child Worker Process N]
+    subgraph L2["Layer 2: Parallel C Multiprocessing & IPC"]
+        Parent["Parent Aggregator Process"] -->|"ftok & msgget"| MQ[("OS Message Queue")]
+        Parent -->|"fork x N"| C1["Child Worker Process 1"]
+        Parent -->|"fork x N"| C2["Child Worker Process N"]
         
-        C1 -->|Compute sub-integral [a1, b1]| SubSum1[I_1 = f x dx]
-        C2 -->|Compute sub-integral [aN, bN]| SubSumN[I_N = f x dx]
+        C1 -->|"Compute sub-integral (a1, b1)"| SubSum1["I_1 = f(x) dx"]
+        C2 -->|"Compute sub-integral (aN, bN)"| SubSumN["I_N = f(x) dx"]
         
-        SubSum1 -->|msgsnd struct msgbuf| MQ
-        SubSumN -->|msgsnd struct msgbuf| MQ
+        SubSum1 -->|"msgsnd struct msgbuf"| MQ
+        SubSumN -->|"msgsnd struct msgbuf"| MQ
         
-        MQ -->|msgrcv| Parent
-        Parent -->|Sum Sub-integrals & wait| Result[Final Quadrature Output]
+        MQ -->|"msgrcv"| Parent
+        Parent -->|"Sum Sub-integrals & wait"| Result["Final Quadrature Output"]
     end
 
-    subgraph Layer 3: CPU Scheduling Analysis
-        Jobs[Job Arrival Queue] --> Scheduler{CPU Scheduler}
-        Scheduler -->|Non-Preemptive| FCFS_SJF[FCFS / SJF]
-        Scheduler -->|Preemptive| SRTF_RR_LRTF[SRTF / Round Robin / LRTFP]
-        FCFS_SJF --> Metrics[Calculate Waiting Time, Turnaround Time & Overhead]
+    subgraph L3["Layer 3: CPU Scheduling Analysis"]
+        Jobs["Job Arrival Queue"] --> Scheduler{"CPU Scheduler"}
+        Scheduler -->|"Non-Preemptive"| FCFS_SJF["FCFS / SJF"]
+        Scheduler -->|"Preemptive"| SRTF_RR_LRTF["SRTF / Round Robin / LRTFP"]
+        FCFS_SJF --> Metrics["Calculate Waiting Time, Turnaround Time & Overhead"]
         SRTF_RR_LRTF --> Metrics
     end
 ```
